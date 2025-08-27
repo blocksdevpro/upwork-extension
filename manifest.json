@@ -1,0 +1,27 @@
+{
+    "name": "Upwork Extensions",
+    "description": "This is a simple extension that allows you to filter jobs from Most Recent & Best Match Upwork.",
+    "version": "1.0",
+    "manifest_version": 3,
+    "permissions": [
+        "storage",
+        "tabs"
+    ],
+    "action": {
+        "default_popup": "src/popup/index.html",
+        "default_icon": "src/assets/favicon.ico"
+    },
+    "content_scripts": [
+        {
+            "matches": [
+                "https://www.upwork.com/nx/find-work/*"
+            ],
+            "js": ["src/scripts/content.js"] 
+        }
+    ],
+    "icons": {
+        "16": "src/assets/favicon.ico",
+        "48": "src/assets/favicon.ico",
+        "128": "src/assets/favicon.ico"
+    }
+}

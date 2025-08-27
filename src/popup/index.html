@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upwork Extensions</title>
+    <script src="./tailwind.js"></script>
+</head>
+<body class="bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white min-h-[420px] w-80">
+    <div class="flex flex-col h-full">
+        <!-- Header -->
+        <div class="bg-gradient-to-r from-blue-600 to-blue-700 p-4 shadow-lg">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 bg-white rounded-lg flex items-center justify-center">
+                    <svg class="w-5 h-5 text-blue-600" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                    </svg>
+                </div>
+                <h1 class="text-xl font-bold text-white">Upwork Extensions</h1>
+            </div>
+        </div>
+
+        <!-- Content -->
+        <div class="flex-1 p-6 space-y-6">
+            <div class="text-center space-y-3">
+                <div class="w-16 h-16 bg-blue-500/20 rounded-full flex items-center justify-center mx-auto">
+                    <svg class="w-8 h-8 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/>
+                    </svg>
+                </div>
+                <h2 class="text-lg font-semibold text-gray-100">Smart Job Filtering</h2>
+                <p class="text-sm text-gray-300 leading-relaxed">
+                    Filter out jobs from clients with low spending and too many proposals to focus on quality opportunities.
+                </p>
+            </div>
+
+            <!-- Settings Section -->
+            <div class="space-y-4">
+                <h3 class="text-md font-semibold text-gray-100 border-b border-gray-700 pb-2">Settings</h3>
+                
+                <!-- Minimum Spend Filter -->
+                <div class="space-y-3">
+                    <label for="minSpend" class="block text-sm font-medium text-gray-200">
+                        Minimum Client Spend ($)
+                    </label>
+                    <div class="flex gap-2">
+                        <input 
+                            type="number" 
+                            id="minSpend" 
+                            min="0" 
+                            step="1"
+                            class="flex-1 bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            placeholder="Enter minimum spend"
+                        >
+                    </div>
+                    <p class="text-xs text-gray-400">
+                        Jobs from clients who have spent less than this amount will be hidden.
+                    </p>
+                </div>
+
+                <!-- Proposals Filter -->
+                <div class="space-y-3">
+                    <label class="block text-sm font-medium text-gray-200">
+                        Proposals Range Filter
+                    </label>
+                    
+                    <!-- Range Display -->
+                    <div class="bg-gray-800/50 rounded-lg p-3 border border-gray-700/50">
+                        <div class="flex justify-between items-center mb-3">
+                            <span class="text-sm text-gray-300">Show jobs with proposals:</span>
+                            <div class="flex items-center gap-2">
+                                <span id="proposalsMinDisplay" class="text-blue-400 font-semibold">0</span>
+                                <span class="text-gray-400">to</span>
+                                <span id="proposalsMaxDisplay" class="text-blue-400 font-semibold">100</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Range Slider Container -->
+                        <div class="relative">
+                            <div class="relative h-2 bg-gray-700 rounded-lg">
+                                <!-- Track background -->
+                                <div class="absolute inset-0 bg-gray-600 rounded-lg"></div>
+                                <!-- Active track -->
+                                <div id="proposalsTrack" class="absolute h-2 bg-gradient-to-r from-blue-500 to-blue-600 rounded-lg transition-all duration-200" style="left: 0%; right: 0%;"></div>
+                                <!-- Slider thumbs -->
+                                <input 
+                                    type="range" 
+                                    id="proposalsMinRange" 
+                                    min="0" 
+                                    max="100" 
+                                    value="0"
+                                    class="absolute w-full h-2 bg-transparent appearance-none cursor-pointer slider-thumb"
+                                    style="top: -4px;"
+                                >
+                                <input 
+                                    type="range" 
+                                    id="proposalsMaxRange" 
+                                    min="0" 
+                                    max="100" 
+                                    value="100"
+                                    class="absolute w-full h-2 bg-transparent appearance-none cursor-pointer slider-thumb"
+                                    style="top: -4px;"
+                                >
+                            </div>
+                            
+                            <!-- Range labels -->
+                            <div class="flex justify-between text-xs text-gray-400 mt-2">
+                                <span>0</span>
+                                <span>25</span>
+                                <span>50</span>
+                                <span>75</span>
+                                <span>100+</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Quick presets -->
+                        <div class="flex gap-2 mt-3">
+                            <button type="button" class="preset-btn" data-min="0" data-max="20">Low (0-20)</button>
+                            <button type="button" class="preset-btn" data-min="5" data-max="50">Medium (5-50)</button>
+                            <button type="button" class="preset-btn" data-min="0" data-max="100">All</button>
+                        </div>
+                    </div>
+                    
+                    <p class="text-xs text-gray-400">
+                        Jobs with proposal counts outside this range will be hidden. Use presets or drag the sliders to set your preferred range.
+                    </p>
+                </div>
+
+                <!-- Save Button -->
+                <div class="pt-2">
+                    <button 
+                        id="saveBtn"
+                        class="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-medium py-2 px-4 rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl"
+                    >
+                        Save Settings
+                    </button>
+                </div>
+            </div>
+
+            <!-- Status -->
+            <div id="status" class="hidden">
+                <div class="flex items-center gap-2 p-3 bg-green-900/20 border border-green-700/50 rounded-lg">
+                    <div class="w-2 h-2 bg-green-400 rounded-full"></div>
+                    <span class="text-sm text-green-300">Settings saved successfully!</span>
+                </div>
+            </div>
+
+            <!-- Features -->
+            <div class="space-y-3">
+                <div class="flex items-center gap-3 p-3 bg-gray-800/50 rounded-lg border border-gray-700/50">
+                    <div class="w-2 h-2 bg-green-400 rounded-full"></div>
+                    <span class="text-sm text-gray-200">Hide low-spending clients (reversible)</span>
+                </div>
+                <div class="flex items-center gap-3 p-3 bg-gray-800/50 rounded-lg border border-gray-700/50">
+                    <div class="w-2 h-2 bg-green-400 rounded-full"></div>
+                    <span class="text-sm text-gray-200">Filter by proposal count range</span>
+                </div>
+                <div class="flex items-center gap-3 p-3 bg-gray-800/50 rounded-lg border border-gray-700/50">
+                    <div class="w-2 h-2 bg-green-400 rounded-full"></div>
+                    <span class="text-sm text-gray-200">Real-time job updates</span>
+                </div>
+                <div class="flex items-center gap-3 p-3 bg-gray-800/50 rounded-lg border border-gray-700/50">
+                    <div class="w-2 h-2 bg-green-400 rounded-full"></div>
+                    <span class="text-sm text-gray-200">Seamless Upwork integration</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="p-4 border-t border-gray-700/50">
+            <div class="text-center">
+                <p class="text-xs text-gray-400 mb-2">Extension is active on Upwork job pages</p>
+                <div class="flex items-center justify-center gap-2">
+                    <div class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                    <span class="text-sm text-green-300">Filtering enabled</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <style>
+        .slider-thumb::-webkit-slider-thumb {
+            appearance: none;
+            height: 18px;
+            width: 18px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+            cursor: pointer;
+            border: 2px solid #ffffff;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            transition: all 0.2s ease;
+            pointer-events: auto;
+        }
+        
+        .slider-thumb::-webkit-slider-thumb:hover {
+            transform: scale(1.1);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+        }
+        
+        .slider-thumb::-moz-range-thumb {
+            height: 18px;
+            width: 18px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+            cursor: pointer;
+            border: 2px solid #ffffff;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            transition: all 0.2s ease;
+            pointer-events: auto;
+        }
+        /* Make only the thumbs interactive so the top slider doesn't hijack clicks */
+        .slider-thumb {
+            pointer-events: none;
+            z-index: 2;
+        }
+        /* Active dragging thumb gets elevated via inline z-index set in JS */
+        
+        .slider-thumb::-moz-range-thumb:hover {
+            transform: scale(1.1);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+        }
+        
+        .preset-btn {
+            flex: 1;
+            padding: 6px 8px;
+            font-size: 11px;
+            background: rgba(55, 65, 81, 0.5);
+            border: 1px solid rgba(75, 85, 99, 0.5);
+            border-radius: 6px;
+            color: #d1d5db;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+        
+        .preset-btn:hover {
+            background: rgba(59, 130, 246, 0.2);
+            border-color: rgba(59, 130, 246, 0.5);
+            color: #93c5fd;
+        }
+        
+        .preset-btn.active {
+            background: rgba(59, 130, 246, 0.3);
+            border-color: #3b82f6;
+            color: #60a5fa;
+        }
+    </style>
+
+    <script src="./popup.js"></script>
+</body>
+</html>
