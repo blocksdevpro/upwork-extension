@@ -308,7 +308,9 @@ class JobCardFactory {
   }
 
     private shouldHideJob(spendingAmount: number, proposalsCount: number): boolean {
-      this.logger.info(`Spending amount: $${spendingAmount}, Proposals count: ${proposalsCount}`);
+      this.logger.debug(
+        `Spending amount: $${spendingAmount}, Proposals count: ${proposalsCount}`
+      );
     // Hide if spending is below threshold
     if (spendingAmount < this.config.thresholds.minimumSpent) {
       this.logger.debug(`Job should be hidden due to low spending: $${spendingAmount} < $${this.config.thresholds.minimumSpent}`);
