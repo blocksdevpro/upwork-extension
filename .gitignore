@@ -3,6 +3,7 @@ node_modules/
 
 # Project files
 dist/
+extension/
 *.zip
 src/scripts/*.js
 src/scripts/*.js.map

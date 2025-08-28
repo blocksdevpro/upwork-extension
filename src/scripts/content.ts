@@ -66,6 +66,131 @@ let config: ExtensionConfig;
 // Track hidden elements so we can restore them when settings change
 const hiddenElements = new Set<HTMLElement>();
 
+// Global service instance
+let jobFilterService: JobFilterService | null = null;
+
+// URL monitoring for SPA navigation
+class UrlMonitor {
+  private currentUrl: string;
+  private readonly logger: Logger;
+  private readonly onUrlChange: () => void;
+
+  constructor(logger: Logger, onUrlChange: () => void) {
+    this.currentUrl = window.location.href;
+    this.logger = logger;
+    this.onUrlChange = onUrlChange;
+    this.startMonitoring();
+  }
+
+  private startMonitoring(): void {
+    // Monitor URL changes using multiple methods for SPA detection
+    this.monitorHistoryChanges();
+    this.monitorLocationChanges();
+    this.monitorPopState();
+  }
+
+  private monitorHistoryChanges(): void {
+    // Override pushState and replaceState to detect programmatic navigation
+    const originalPushState = history.pushState;
+    const originalReplaceState = history.replaceState;
+
+    history.pushState = (...args) => {
+      originalPushState.apply(history, args);
+      this.checkUrlChange();
+    };
+
+    history.replaceState = (...args) => {
+      originalReplaceState.apply(history, args);
+      this.checkUrlChange();
+    };
+  }
+
+  private monitorLocationChanges(): void {
+    // Use MutationObserver to watch for URL changes in the address bar
+    const observer = new MutationObserver(() => {
+      this.checkUrlChange();
+    });
+
+    // Watch for changes in the document title as a proxy for navigation
+    observer.observe(document, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['title']
+    });
+
+    // Also watch for specific Upwork navigation patterns
+    this.monitorUpworkNavigation();
+  }
+
+  private monitorUpworkNavigation(): void {
+    // Watch for clicks on navigation elements that might trigger SPA navigation
+    document.addEventListener('click', (event) => {
+      const target = event.target as HTMLElement;
+      const link = target.closest('a');
+      
+      if (link && link.href && link.href.includes('/nx/find-work/')) {
+        // Debounce the check to allow the navigation to complete
+        setTimeout(() => {
+          this.checkUrlChange();
+        }, 200);
+      }
+    }, true);
+
+    // Watch for route changes in Upwork's React app
+    const routeObserver = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        if (mutation.type === 'childList') {
+          // Check if new job tiles are added (indicating navigation)
+          const addedNodes = Array.from(mutation.addedNodes);
+          const hasJobTiles = addedNodes.some(node => {
+            if (node.nodeType === Node.ELEMENT_NODE) {
+              const element = node as Element;
+              return element.querySelector && element.querySelector('div[data-test="job-tile-list"]');
+            }
+            return false;
+          });
+          
+          if (hasJobTiles) {
+            setTimeout(() => {
+              this.checkUrlChange();
+            }, 100);
+          }
+        }
+      }
+    });
+
+    routeObserver.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+  }
+
+  private monitorPopState(): void {
+    // Listen for browser back/forward navigation
+    window.addEventListener('popstate', () => {
+      this.checkUrlChange();
+    });
+  }
+
+  private checkUrlChange(): void {
+    const newUrl = window.location.href;
+    if (newUrl !== this.currentUrl) {
+      this.logger.info(`URL changed from ${this.currentUrl} to ${newUrl}`);
+      this.currentUrl = newUrl;
+      
+      // Debounce the URL change to avoid multiple rapid calls
+      setTimeout(() => {
+        this.onUrlChange();
+      }, 100);
+    }
+  }
+
+  getCurrentUrl(): string {
+    return this.currentUrl;
+  }
+}
+
 // Helper function to get configuration based on environment
 function getConfig(): ExtensionConfig {
   const isDevelopment = window.location.hostname === 'localhost' ||
@@ -495,6 +620,7 @@ class JobFilterService {
   private readonly domManipulator: DomManipulator;
   private mutationObserverManager: MutationObserverManager;
   private isProcessing = false;
+  private isInitialized = false;
 
   constructor(config: ExtensionConfig) {
     this.config = config;
@@ -507,64 +633,91 @@ class JobFilterService {
       this.logger,
       () => this.processJobCards()
     );
-    
+
     // Set up message listener for settings updates
     this.setupMessageListener();
   }
 
   private setupMessageListener(): void {
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-      if (message.type === 'SETTINGS_UPDATED') {
+      if (message.type === "SETTINGS_UPDATED") {
         this.handleSettingsUpdate(message.data);
         sendResponse({ success: true });
       }
     });
   }
 
-  private handleSettingsUpdate(data: { minimumSpent: number; proposalsMin: number; proposalsMax: number }): void {
-    this.logger.info('Received settings update:', data);
-    
+  private handleSettingsUpdate(data: {
+    minimumSpent: number;
+    proposalsMin: number;
+    proposalsMax: number;
+  }): void {
+    this.logger.info("Received settings update:", data);
+
     // Update config
     this.config.thresholds.minimumSpent = data.minimumSpent;
     this.config.thresholds.proposalsMin = data.proposalsMin;
     this.config.thresholds.proposalsMax = data.proposalsMax;
-    
+
     // Recreate job card factory with updated config
     this.jobCardFactory = new JobCardFactory(this.config, this.logger);
-    
+
     // Recreate mutation observer manager with updated config
     this.mutationObserverManager = new MutationObserverManager(
       this.config,
       this.logger,
       () => this.processJobCards()
     );
-    
+
     // Show all previously hidden elements first
     this.domManipulator.showAllHiddenElements();
-    
+
     // Reprocess job cards with new settings
     this.processJobCards();
-    
-    this.logger.info('Settings updated and applied successfully');
+
+    this.logger.info("Settings updated and applied successfully");
   }
 
   initialize(): void {
-      this.logger.info('Upwork Extension: Content script loaded');
-      
+    if (this.isInitialized) {
+      this.logger.info("Service already initialized, cleaning up first...");
+      this.cleanup();
+    }
 
-    
-    const jobTileList = this.domManipulator.findJobTileList(this.config.selectors.jobTileList);
-    
+    this.logger.info("Upwork Extension: Initializing content script");
+
+    const jobTileList = this.domManipulator.findJobTileList(
+      this.config.selectors.jobTileList
+    );
+
     if (jobTileList) {
       this.setupJobFiltering(jobTileList);
     } else {
       this.waitForJobTileList();
     }
+
+    this.isInitialized = true;
+  }
+
+  cleanup(): void {
+    this.logger.info("Cleaning up job filter service...");
+
+    // Disconnect mutation observer
+    this.mutationObserverManager.disconnect();
+
+    // Show all hidden elements
+    this.domManipulator.showAllHiddenElements();
+
+    // Reset processing flag
+    this.isProcessing = false;
+    this.isInitialized = false;
+
+    this.logger.info("Cleanup completed");
   }
 
   private setupJobFiltering(jobTileList: HTMLElement): void {
-    this.logger.info('Found job tile list, starting filter process');
-    
+    this.logger.info("Found job tile list, starting filter process");
+
     // Process existing job cards
     this.processJobCards(jobTileList);
 
@@ -576,18 +729,20 @@ class JobFilterService {
   }
 
   private waitForJobTileList(): void {
-    this.logger.info('Job tile list not found, waiting for page to load...');
-    
+    this.logger.info("Job tile list not found, waiting for page to load...");
+
     const observer = new MutationObserver((_, obs) => {
-      const jobTileList = this.domManipulator.findJobTileList(this.config.selectors.jobTileList);
-      
+      const jobTileList = this.domManipulator.findJobTileList(
+        this.config.selectors.jobTileList
+      );
+
       if (jobTileList) {
-        this.logger.info('Job tile list found after waiting');
+        this.logger.info("Job tile list found after waiting");
         this.setupJobFiltering(jobTileList);
         obs.disconnect();
       }
     });
-    
+
     observer.observe(document.body, {
       childList: true,
       subtree: true,
@@ -596,7 +751,7 @@ class JobFilterService {
 
   private processJobCards(container?: HTMLElement): void {
     if (this.isProcessing) {
-      this.logger.debug('Already processing job cards, skipping...');
+      this.logger.debug("Already processing job cards, skipping...");
       return;
     }
 
@@ -604,33 +759,46 @@ class JobFilterService {
     const startTime = performance.now();
 
     try {
-      const targetContainer = container || this.domManipulator.findJobTileList(this.config.selectors.jobTileList);
-      
+      const targetContainer =
+        container ||
+        this.domManipulator.findJobTileList(this.config.selectors.jobTileList);
+
       if (!targetContainer) {
-        this.logger.warn('No job tile list container found for processing');
+        this.logger.warn("No job tile list container found for processing");
         return;
       }
 
-      const jobCardElements = this.domManipulator.getJobCardElements(targetContainer);
+      const jobCardElements =
+        this.domManipulator.getJobCardElements(targetContainer);
       const jobCards = jobCardElements
-        .map(element => this.jobCardFactory.createFromElement(element))
+        .map((element) => this.jobCardFactory.createFromElement(element))
         .filter((jobCard): jobCard is JobCard => jobCard !== null);
 
-      const cardsToHide = jobCards.filter(jobCard => jobCard.shouldBeHidden);
-      
+      const cardsToHide = jobCards.filter((jobCard) => jobCard.shouldBeHidden);
+
       if (cardsToHide.length > 0) {
-        this.logger.info(`Hiding ${cardsToHide.length} job cards with insufficient spending`);
-        this.domManipulator.hideElements(cardsToHide.map(card => card.element));
+        this.logger.info(
+          `Hiding ${cardsToHide.length} job cards with insufficient spending`
+        );
+        this.domManipulator.hideElements(
+          cardsToHide.map((card) => card.element)
+        );
       }
 
       const processingTime = performance.now() - startTime;
-      this.logger.debug(`Job card processing completed in ${processingTime.toFixed(2)}ms`);
+      this.logger.debug(
+        `Job card processing completed in ${processingTime.toFixed(2)}ms`
+      );
 
       if (processingTime > this.config.performance.maxProcessingTime) {
-        this.logger.warn(`Job card processing took ${processingTime.toFixed(2)}ms, exceeding threshold`);
+        this.logger.warn(
+          `Job card processing took ${processingTime.toFixed(
+            2
+          )}ms, exceeding threshold`
+        );
       }
     } catch (error) {
-      this.logger.error('Error processing job cards:', error);
+      this.logger.error("Error processing job cards:", error);
     } finally {
       this.isProcessing = false;
     }
@@ -642,11 +810,35 @@ console.log("Setting up extension");
 // Main execution
 async function initializeExtension() {
   config = getConfig();
-  
+
   // Load settings from storage and update config
   await updateConfigWithSettings();
-  
-  const jobFilterService = new JobFilterService(config);
+
+  // Create the job filter service
+  jobFilterService = new JobFilterService(config);
+
+  // Create logger for URL monitoring
+  const logger = new Logger(config);
+
+  // Create URL monitor to handle SPA navigation
+  const urlMonitor = new UrlMonitor(logger, () => {
+    logger.info("URL change detected, reinitializing extension...");
+
+    // Check if we're on a job listing page
+    const currentUrl = urlMonitor.getCurrentUrl();
+    if (currentUrl.includes("/nx/find-work/")) {
+      logger.info("On job listing page, reinitializing...");
+
+      // Reinitialize the service
+      if (jobFilterService) {
+        jobFilterService.initialize();
+      }
+    } else {
+      logger.info("Not on job listing page, skipping reinitialization");
+    }
+  });
+
+  // Initialize the service
   jobFilterService.initialize();
 }
 
