@@ -15,11 +15,15 @@ interface ExtensionConfig {
   };
   readonly logging: {
     readonly enabled: boolean;
-    readonly level: 'debug' | 'info' | 'warn' | 'error';
+    readonly level: "debug" | "info" | "warn" | "error";
   };
   readonly performance: {
     readonly debounceDelay: number;
     readonly maxProcessingTime: number;
+  };
+  readonly autoRefresh?: {
+    readonly enabled: boolean;
+    readonly refreshIntervalMs: number;
   };
 }
 
@@ -36,11 +40,15 @@ const DEFAULT_CONFIG: ExtensionConfig = {
   },
   logging: {
     enabled: true,
-    level: 'info',
+    level: "info",
   },
   performance: {
     debounceDelay: 300, // ms
     maxProcessingTime: 5000, // ms
+  },
+  autoRefresh: {
+    enabled: true,
+    refreshIntervalMs: 60000, // 60s default
   },
 };
 
@@ -48,7 +56,7 @@ const PRODUCTION_CONFIG: ExtensionConfig = {
   ...DEFAULT_CONFIG,
   logging: {
     enabled: true,
-    level: 'info',
+    level: "info",
   },
 };
 
@@ -56,7 +64,7 @@ const DEVELOPMENT_CONFIG: ExtensionConfig = {
   ...DEFAULT_CONFIG,
   logging: {
     enabled: true,
-    level: 'debug',
+    level: "debug",
   },
 };
 
@@ -68,6 +76,8 @@ const hiddenElements = new Set<HTMLElement>();
 
 // Global service instance
 let jobFilterService: JobFilterService | null = null;
+// Global auto page reloader instance
+let autoPageReloader: AutoPageReloader | null = null;
 
 // URL monitoring for SPA navigation
 class UrlMonitor {
@@ -116,7 +126,7 @@ class UrlMonitor {
       subtree: true,
       childList: true,
       attributes: true,
-      attributeFilter: ['title']
+      attributeFilter: ["title"],
     });
 
     // Also watch for specific Upwork navigation patterns
@@ -125,32 +135,39 @@ class UrlMonitor {
 
   private monitorUpworkNavigation(): void {
     // Watch for clicks on navigation elements that might trigger SPA navigation
-    document.addEventListener('click', (event) => {
-      const target = event.target as HTMLElement;
-      const link = target.closest('a');
-      
-      if (link && link.href && link.href.includes('/nx/find-work/')) {
-        // Debounce the check to allow the navigation to complete
-        setTimeout(() => {
-          this.checkUrlChange();
-        }, 200);
-      }
-    }, true);
+    document.addEventListener(
+      "click",
+      (event) => {
+        const target = event.target as HTMLElement;
+        const link = target.closest("a");
+
+        if (link && link.href && link.href.includes("/nx/find-work/")) {
+          // Debounce the check to allow the navigation to complete
+          setTimeout(() => {
+            this.checkUrlChange();
+          }, 200);
+        }
+      },
+      true
+    );
 
     // Watch for route changes in Upwork's React app
     const routeObserver = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
-        if (mutation.type === 'childList') {
+        if (mutation.type === "childList") {
           // Check if new job tiles are added (indicating navigation)
           const addedNodes = Array.from(mutation.addedNodes);
-          const hasJobTiles = addedNodes.some(node => {
+          const hasJobTiles = addedNodes.some((node) => {
             if (node.nodeType === Node.ELEMENT_NODE) {
               const element = node as Element;
-              return element.querySelector && element.querySelector('div[data-test="job-tile-list"]');
+              return (
+                element.querySelector &&
+                element.querySelector('div[data-test="job-tile-list"]')
+              );
             }
             return false;
           });
-          
+
           if (hasJobTiles) {
             setTimeout(() => {
               this.checkUrlChange();
@@ -162,13 +179,13 @@ class UrlMonitor {
 
     routeObserver.observe(document.body, {
       childList: true,
-      subtree: true
+      subtree: true,
     });
   }
 
   private monitorPopState(): void {
     // Listen for browser back/forward navigation
-    window.addEventListener('popstate', () => {
+    window.addEventListener("popstate", () => {
       this.checkUrlChange();
     });
   }
@@ -178,7 +195,7 @@ class UrlMonitor {
     if (newUrl !== this.currentUrl) {
       this.logger.info(`URL changed from ${this.currentUrl} to ${newUrl}`);
       this.currentUrl = newUrl;
-      
+
       // Debounce the URL change to avoid multiple rapid calls
       setTimeout(() => {
         this.onUrlChange();
@@ -193,23 +210,32 @@ class UrlMonitor {
 
 // Helper function to get configuration based on environment
 function getConfig(): ExtensionConfig {
-  const isDevelopment = window.location.hostname === 'localhost' ||
-                       window.location.hostname.includes('dev');
-  console.log('isDevelopment', isDevelopment);
+  const isDevelopment =
+    window.location.hostname === "localhost" ||
+    window.location.hostname.includes("dev");
+  console.log("isDevelopment", isDevelopment);
   return isDevelopment ? DEVELOPMENT_CONFIG : PRODUCTION_CONFIG;
 }
 
 // Function to load settings from storage
-async function loadSettingsFromStorage(): Promise<{ minimumSpent: number; proposalsMin: number; proposalsMax: number }> {
+async function loadSettingsFromStorage(): Promise<{
+  minimumSpent: number;
+  proposalsMin: number;
+  proposalsMax: number;
+}> {
   try {
-    const result = await chrome.storage.sync.get(['minimumSpent', 'proposalsMin', 'proposalsMax']);
+    const result = await chrome.storage.sync.get([
+      "minimumSpent",
+      "proposalsMin",
+      "proposalsMax",
+    ]);
     return {
       minimumSpent: result.minimumSpent || 1, // Default to 1 if not set
       proposalsMin: result.proposalsMin || 0, // Default to 0
       proposalsMax: result.proposalsMax || 100, // Default to 100
     };
   } catch (error) {
-    console.error('Error loading settings from storage:', error);
+    console.error("Error loading settings from storage:", error);
     return { minimumSpent: 1, proposalsMin: 0, proposalsMax: 100 }; // Fallback to defaults
   }
 }
@@ -220,7 +246,7 @@ async function updateConfigWithSettings(): Promise<void> {
   config.thresholds.minimumSpent = settings.minimumSpent;
   config.thresholds.proposalsMin = settings.proposalsMin;
   config.thresholds.proposalsMax = settings.proposalsMax;
-  console.log('Updated config with settings:', settings);
+  console.log("Updated config with settings:", settings);
 }
 
 // Logger class following Single Responsibility Principle
@@ -233,31 +259,33 @@ class Logger {
 
   private shouldLog(level: string): boolean {
     if (!this.config.logging.enabled) return false;
-    
+
     const levels = { debug: 0, info: 1, warn: 2, error: 3 };
-    return levels[level as keyof typeof levels] >= levels[this.config.logging.level];
+    return (
+      levels[level as keyof typeof levels] >= levels[this.config.logging.level]
+    );
   }
 
   debug(message: string, ...args: unknown[]): void {
-    if (this.shouldLog('debug')) {
+    if (this.shouldLog("debug")) {
       console.log(`[DEBUG] ${message}`, ...args);
     }
   }
 
   info(message: string, ...args: unknown[]): void {
-    if (this.shouldLog('info')) {
+    if (this.shouldLog("info")) {
       console.log(`[INFO] ${message}`, ...args);
     }
   }
 
   warn(message: string, ...args: unknown[]): void {
-    if (this.shouldLog('warn')) {
+    if (this.shouldLog("warn")) {
       console.warn(`[WARN] ${message}`, ...args);
     }
   }
 
   error(message: string, ...args: unknown[]): void {
-    if (this.shouldLog('error')) {
+    if (this.shouldLog("error")) {
       console.error(`[ERROR] ${message}`, ...args);
     }
   }
@@ -272,9 +300,9 @@ class AmountParser {
   } as const;
 
   private static readonly CLEANUP_PATTERNS = [
-    { pattern: /\$/g, replacement: '' },
-    { pattern: /\+/g, replacement: '' },
-    { pattern: /\bspent\b/gi, replacement: '' },
+    { pattern: /\$/g, replacement: "" },
+    { pattern: /\+/g, replacement: "" },
+    { pattern: /\bspent\b/gi, replacement: "" },
   ];
 
   /**
@@ -285,31 +313,32 @@ class AmountParser {
   static parse(amount: string): number {
     try {
       let cleanedAmount = amount.trim().toLowerCase();
-      
+
       // Apply cleanup patterns
       this.CLEANUP_PATTERNS.forEach(({ pattern, replacement }) => {
         cleanedAmount = cleanedAmount.replace(pattern, replacement);
       });
-      
+
       cleanedAmount = cleanedAmount.trim();
-      
+
       if (!cleanedAmount) {
         return 0;
       }
 
       const lastChar = cleanedAmount.slice(-1);
-      const multiplier = this.MULTIPLIERS[lastChar as keyof typeof this.MULTIPLIERS];
-      
+      const multiplier =
+        this.MULTIPLIERS[lastChar as keyof typeof this.MULTIPLIERS];
+
       if (multiplier) {
         const numericPart = cleanedAmount.slice(0, -1);
         const value = parseFloat(numericPart);
         return isNaN(value) ? 0 : value * multiplier;
       }
-      
+
       const value = parseFloat(cleanedAmount);
       return isNaN(value) ? 0 : value;
     } catch (error) {
-      console.error('Error parsing amount:', error);
+      console.error("Error parsing amount:", error);
       return 0;
     }
   }
@@ -325,39 +354,39 @@ class ProposalsParser {
   static parse(proposals: string): number {
     try {
       const cleanedProposals = proposals.trim().toLowerCase();
-      
+
       // Handle "Less than X" format
-      if (cleanedProposals.startsWith('less than')) {
+      if (cleanedProposals.startsWith("less than")) {
         const match = cleanedProposals.match(/less than (\d+)/);
         if (match) {
           const value = parseInt(match[1]);
           return value > 0 ? value - 1 : 0; // Return the number before "less than"
         }
       }
-      
+
       // Handle "X to Y" format
       const rangeMatch = cleanedProposals.match(/(\d+)\s+to\s+(\d+)/);
       if (rangeMatch) {
         const max = parseInt(rangeMatch[2]);
         return max; // Return the maximum value in the range
       }
-      
+
       // Handle "X+" format (more than X)
       const moreThanMatch = cleanedProposals.match(/(\d+)\+/);
       if (moreThanMatch) {
         const value = parseInt(moreThanMatch[1]);
         return value + 10; // Return a reasonable upper bound
       }
-      
+
       // Handle single number
       const singleMatch = cleanedProposals.match(/(\d+)/);
       if (singleMatch) {
         return parseInt(singleMatch[1]);
       }
-      
+
       return 0; // Default to 0 if no pattern matches
     } catch (error) {
-      console.error('Error parsing proposals:', error);
+      console.error("Error parsing proposals:", error);
       return 0;
     }
   }
@@ -392,13 +421,13 @@ class JobCardFactory {
       ) as HTMLElement | null;
 
       if (!spendingElement) {
-        this.logger.debug('No spending element found in job card');
+        this.logger.debug("No spending element found in job card");
         return null;
       }
-        
+
       const spendingText = this.extractSpendingText(spendingElement);
       const spendingAmount = AmountParser.parse(spendingText);
-      
+
       let proposalsCount = 0;
       if (proposalsElement) {
         const proposalsText = this.extractProposalsText(proposalsElement);
@@ -414,39 +443,50 @@ class JobCardFactory {
         shouldBeHidden,
       };
     } catch (error) {
-      this.logger.error('Error creating job card from element:', error);
+      this.logger.error("Error creating job card from element:", error);
       return null;
     }
   }
 
   private extractSpendingText(element: HTMLElement): string {
-    return (element.textContent || '')
-      .replace(/\s+/g, ' ')
+    return (element.textContent || "")
+      .replace(/\s+/g, " ")
       .trim()
       .toLowerCase();
   }
 
   private extractProposalsText(element: HTMLElement): string {
-    return (element.textContent || '')
-      .replace(/\s+/g, ' ')
-      .trim();
+    return (element.textContent || "").replace(/\s+/g, " ").trim();
   }
 
-    private shouldHideJob(spendingAmount: number, proposalsCount: number): boolean {
-      this.logger.debug(
-        `Spending amount: $${spendingAmount}, Proposals count: ${proposalsCount}`
-      );
+  private shouldHideJob(
+    spendingAmount: number,
+    proposalsCount: number
+  ): boolean {
+    this.logger.debug(
+      `Spending amount: $${spendingAmount}, Proposals count: ${proposalsCount}`
+    );
     // Hide if spending is below threshold
     if (spendingAmount < this.config.thresholds.minimumSpent) {
-      this.logger.debug(`Job should be hidden due to low spending: $${spendingAmount} < $${this.config.thresholds.minimumSpent}`);
+      this.logger.debug(
+        `Job should be hidden due to low spending: $${spendingAmount} < $${this.config.thresholds.minimumSpent}`
+      );
       return true;
     }
 
     // Hide if proposals count is outside the range
     // Only apply filter if it's not the default "show all" range (0-100)
-    if (this.config.thresholds.proposalsMin !== 0 || this.config.thresholds.proposalsMax !== 100) {
-      if (proposalsCount < this.config.thresholds.proposalsMin || proposalsCount > this.config.thresholds.proposalsMax) {
-        this.logger.debug(`Job should be hidden due to proposals count: ${proposalsCount} not in range [${this.config.thresholds.proposalsMin}, ${this.config.thresholds.proposalsMax}]`);
+    if (
+      this.config.thresholds.proposalsMin !== 0 ||
+      this.config.thresholds.proposalsMax !== 100
+    ) {
+      if (
+        proposalsCount < this.config.thresholds.proposalsMin ||
+        proposalsCount > this.config.thresholds.proposalsMax
+      ) {
+        this.logger.debug(
+          `Job should be hidden due to proposals count: ${proposalsCount} not in range [${this.config.thresholds.proposalsMin}, ${this.config.thresholds.proposalsMax}]`
+        );
         return true;
       }
     }
@@ -469,9 +509,11 @@ class JobFilterImpl implements JobFilter {
   }
 
   filter(jobCards: JobCard[]): JobCard[] {
-    return jobCards.filter(jobCard => {
+    return jobCards.filter((jobCard) => {
       if (jobCard.shouldBeHidden) {
-        this.logger.info(`Filtering out job card with $${jobCard.spendingAmount} spent and ${jobCard.proposalsCount} proposals`);
+        this.logger.info(
+          `Filtering out job card with $${jobCard.spendingAmount} spent and ${jobCard.proposalsCount} proposals`
+        );
         return false;
       }
       return true;
@@ -488,33 +530,33 @@ class DomManipulator {
   }
 
   hideElements(elements: HTMLElement[]): void {
-    elements.forEach(element => {
+    elements.forEach((element) => {
       try {
         // Hide the element instead of removing it
-        element.style.display = 'none';
+        element.style.display = "none";
         // Add a data attribute to mark it as hidden by our extension
-        element.setAttribute('data-upwork-extension-hidden', 'true');
+        element.setAttribute("data-upwork-extension-hidden", "true");
         // Track the hidden element
         hiddenElements.add(element);
-        this.logger.debug('Successfully hidden job card element');
+        this.logger.debug("Successfully hidden job card element");
       } catch (error) {
-        this.logger.error('Error hiding job card element:', error);
+        this.logger.error("Error hiding job card element:", error);
       }
     });
   }
 
   showElements(elements: HTMLElement[]): void {
-    elements.forEach(element => {
+    elements.forEach((element) => {
       try {
         // Show the element
-        element.style.display = '';
+        element.style.display = "";
         // Remove the data attribute
-        element.removeAttribute('data-upwork-extension-hidden');
+        element.removeAttribute("data-upwork-extension-hidden");
         // Remove from tracking set
         hiddenElements.delete(element);
-        this.logger.debug('Successfully shown job card element');
+        this.logger.debug("Successfully shown job card element");
       } catch (error) {
-        this.logger.error('Error showing job card element:', error);
+        this.logger.error("Error showing job card element:", error);
       }
     });
   }
@@ -523,14 +565,16 @@ class DomManipulator {
   showAllHiddenElements(): void {
     const elementsToShow = Array.from(hiddenElements);
     this.showElements(elementsToShow);
-    this.logger.info(`Restored ${elementsToShow.length} previously hidden elements`);
+    this.logger.info(
+      `Restored ${elementsToShow.length} previously hidden elements`
+    );
   }
 
   findJobTileList(selector: string): HTMLElement | null {
     try {
       return document.querySelector(selector);
     } catch (error) {
-      this.logger.error('Error finding job tile list:', error);
+      this.logger.error("Error finding job tile list:", error);
       return null;
     }
   }
@@ -539,7 +583,7 @@ class DomManipulator {
     try {
       return Array.from(container.children) as HTMLElement[];
     } catch (error) {
-      this.logger.error('Error getting job card elements:', error);
+      this.logger.error("Error getting job card elements:", error);
       return [];
     }
   }
@@ -553,7 +597,7 @@ class Debouncer {
     if (this.timeoutId) {
       clearTimeout(this.timeoutId);
     }
-    
+
     this.timeoutId = window.setTimeout(() => {
       func();
       this.timeoutId = null;
@@ -564,6 +608,45 @@ class Debouncer {
     if (this.timeoutId) {
       clearTimeout(this.timeoutId);
       this.timeoutId = null;
+    }
+  }
+}
+
+// Auto page reloader to force-refresh listing page
+class AutoPageReloader {
+  private readonly config: ExtensionConfig;
+  private readonly logger: Logger;
+  private intervalId: number | null = null;
+
+  constructor(config: ExtensionConfig, logger: Logger) {
+    this.config = config;
+    this.logger = logger;
+  }
+
+  start(): void {
+    if (!this.config.autoRefresh?.enabled) {
+      this.logger.info("AutoRefresh disabled in config");
+      return;
+    }
+    this.stop();
+    const interval = this.config.autoRefresh.refreshIntervalMs;
+    this.logger.info(`Starting AutoPageReloader (every ${interval}ms)`);
+    this.intervalId = window.setInterval(() => {
+      try {
+        this.logger.info(
+          "AutoPageReloader: reloading page to fetch newer jobs"
+        );
+        window.location.reload();
+      } catch (error) {
+        this.logger.error("Error during auto page reload", error);
+      }
+    }, interval);
+  }
+
+  stop(): void {
+    if (this.intervalId) {
+      clearInterval(this.intervalId);
+      this.intervalId = null;
     }
   }
 }
@@ -587,7 +670,7 @@ class MutationObserverManager {
     try {
       this.observer = new MutationObserver((mutations: MutationRecord[]) => {
         this.logger.debug(`Detected ${mutations.length} mutations`);
-        
+
         // Debounce the processing to avoid excessive calls
         this.debouncer.debounce(() => {
           this.onMutation();
@@ -595,9 +678,9 @@ class MutationObserverManager {
       });
 
       this.observer.observe(element, options);
-      this.logger.info('Mutation observer set up successfully');
+      this.logger.info("Mutation observer set up successfully");
     } catch (error) {
-      this.logger.error('Error setting up mutation observer:', error);
+      this.logger.error("Error setting up mutation observer:", error);
     }
   }
 
@@ -605,7 +688,7 @@ class MutationObserverManager {
     if (this.observer) {
       this.observer.disconnect();
       this.observer = null;
-      this.logger.debug('Mutation observer disconnected');
+      this.logger.debug("Mutation observer disconnected");
     }
     this.debouncer.cancel();
   }
@@ -820,6 +903,12 @@ async function initializeExtension() {
   // Create logger for URL monitoring
   const logger = new Logger(config);
 
+  // Prepare auto page reloader and start only on listing page
+  autoPageReloader = new AutoPageReloader(config, logger);
+  if (window.location.href.includes("/nx/find-work/")) {
+    autoPageReloader.start();
+  }
+
   // Create URL monitor to handle SPA navigation
   const urlMonitor = new UrlMonitor(logger, () => {
     logger.info("URL change detected, reinitializing extension...");
@@ -833,8 +922,14 @@ async function initializeExtension() {
       if (jobFilterService) {
         jobFilterService.initialize();
       }
+      if (autoPageReloader) {
+        autoPageReloader.start();
+      }
     } else {
       logger.info("Not on job listing page, skipping reinitialization");
+      if (autoPageReloader) {
+        autoPageReloader.stop();
+      }
     }
   });
 
