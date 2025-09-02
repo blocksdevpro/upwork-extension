@@ -1,7 +1,7 @@
 {
     "name": "Upwork Extensions",
     "description": "This is a simple extension that allows you to filter jobs from Most Recent & Best Match Upwork.",
-    "version": "1.0",
+    "version": "1.0.0",
     "manifest_version": 3,
     "permissions": [
         "storage",

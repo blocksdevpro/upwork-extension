@@ -13,11 +13,14 @@ A Chrome extension that helps filter Upwork job listings by filtering out jobs f
 
 ## Installation
 
-### For Users
+### From Chrome Web Store (recommended)
+Once published, install from the Chrome Web Store: [Upwork Extensions](https://chromewebstore.google.com/detail/PLACEHOLDER)
+
+### Load Unpacked (for testing)
 1. Clone or download this repository
 2. Open Chrome and navigate to `chrome://extensions/`
 3. Enable "Developer mode" in the top right
-4. Click "Load unpacked" and select the extension directory
+4. Click "Load unpacked" and select the `dist` directory (after building)
 5. The extension icon should appear in your Chrome toolbar
 
 ### For Developers
@@ -29,10 +32,11 @@ cd upwork-extension
 # Install dependencies
 pnpm install
 
-# Build the extension
+# Build the extension (content script)
 pnpm run build
 
-# Load the extension in Chrome using the dist folder
+# Create distributable zip for submission
+pnpm run build:prod
 ```
 
 ## Usage

@@ -2,6 +2,15 @@
   "name": "upwork-extension",
   "version": "1.0.0",
   "description": "Upwork extension with TypeScript",
+"license": "MIT",
+"repository": {
+    "type": "git",
+    "url": "git+https://github.com/OWNER/upwork-extension.git"
+},
+"bugs": {
+    "url": "https://github.com/OWNER/upwork-extension/issues"
+},
+"homepage": "https://github.com/OWNER/upwork-extension#readme",
   "scripts": {
     "build": "node build.js",
     "watch": "node build.js --watch",
