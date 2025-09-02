@@ -13,6 +13,9 @@ export class JobFilterService {
   private mutationObserverManager: MutationObserverManager;
   private isProcessing = false;
   private isInitialized = false;
+  private lastProcessingMs: number = 0;
+  private lastHiddenCount: number = 0;
+  private lastVisibleCount: number = 0;
 
   constructor(config: ExtensionConfig) {
     this.config = config;
@@ -34,6 +37,24 @@ export class JobFilterService {
       if (message.type === "SETTINGS_UPDATED") {
         this.handleSettingsUpdate(message.data);
         sendResponse({ success: true });
+        return true;
+      }
+      if (message.type === "GET_STATUS") {
+        sendResponse({
+          filteringEnabled: this.config.filteringEnabled,
+          thresholds: { ...this.config.thresholds },
+          autoRefresh: { ...this.config.autoRefresh },
+          lastProcessingMs: this.lastProcessingMs,
+          lastHiddenCount: this.lastHiddenCount,
+          lastVisibleCount: this.lastVisibleCount,
+          isProcessing: this.isProcessing,
+        });
+        return true;
+      }
+      if (message.type === "SHOW_ALL_HIDDEN") {
+        this.domManipulator.showAllHiddenElements();
+        sendResponse({ success: true });
+        return true;
       }
     });
   }
@@ -42,12 +63,26 @@ export class JobFilterService {
     minimumSpent: number;
     proposalsMin: number;
     proposalsMax: number;
+    filteringEnabled?: boolean;
+    autoRefreshEnabled?: boolean;
+    autoRefreshIntervalMs?: number;
   }): void {
     this.logger.info("Received settings update:", data);
 
     this.config.thresholds.minimumSpent = data.minimumSpent;
     this.config.thresholds.proposalsMin = data.proposalsMin;
     this.config.thresholds.proposalsMax = data.proposalsMax;
+    if (typeof data.filteringEnabled === "boolean") {
+      this.config.filteringEnabled = data.filteringEnabled;
+    }
+    if (this.config.autoRefresh) {
+      if (typeof data.autoRefreshEnabled === "boolean") {
+        this.config.autoRefresh.enabled = data.autoRefreshEnabled;
+      }
+      if (typeof data.autoRefreshIntervalMs === "number") {
+        this.config.autoRefresh.refreshIntervalMs = data.autoRefreshIntervalMs;
+      }
+    }
 
     this.jobCardFactory = new JobCardFactory(this.config, this.logger);
 
@@ -135,6 +170,10 @@ export class JobFilterService {
       this.logger.debug("Already processing job cards, skipping...");
       return;
     }
+    if (!this.config.filteringEnabled) {
+      this.logger.info("Filtering disabled, skipping processing");
+      return;
+    }
 
     this.isProcessing = true;
     const startTime = performance.now();
@@ -149,26 +188,41 @@ export class JobFilterService {
         return;
       }
 
-      const jobCardElements = this.domManipulator.getJobCardElements(targetContainer);
+      const jobCardElements =
+        this.domManipulator.getJobCardElements(targetContainer);
       const jobCards = jobCardElements
         .map((element) => this.jobCardFactory.createFromElement(element))
         .filter((jobCard): jobCard is JobCard => jobCard !== null);
 
       const cardsToHide = jobCards.filter((jobCard) => jobCard.shouldBeHidden);
+      const total = jobCards.length;
+      const hidden = cardsToHide.length;
+      const visible = total - hidden;
 
       if (cardsToHide.length > 0) {
         this.logger.info(
           `Hiding ${cardsToHide.length} job cards with insufficient spending`
         );
-        this.domManipulator.hideElements(cardsToHide.map((card) => card.element));
+        this.domManipulator.hideElements(
+          cardsToHide.map((card) => card.element)
+        );
       }
 
       const processingTime = performance.now() - startTime;
-      this.logger.debug(`Job card processing completed in ${processingTime.toFixed(2)}ms`);
+      this.lastProcessingMs = processingTime;
+      this.lastHiddenCount = hidden;
+      this.lastVisibleCount = visible;
+      this.logger.debug(
+        `Job card processing completed in ${processingTime.toFixed(
+          2
+        )}ms (total: ${total}, hidden: ${hidden}, visible: ${visible})`
+      );
 
       if (processingTime > this.config.performance.maxProcessingTime) {
         this.logger.warn(
-          `Job card processing took ${processingTime.toFixed(2)}ms, exceeding threshold`
+          `Job card processing took ${processingTime.toFixed(
+            2
+          )}ms, exceeding threshold`
         );
       }
     } catch (error) {

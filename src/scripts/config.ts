@@ -1,27 +1,28 @@
 // Configuration interface and defaults
 export interface ExtensionConfig {
-  readonly selectors: {
-    readonly jobTileList: string;
-    readonly clientSpending: string;
-    readonly proposals: string;
+  selectors: {
+    jobTileList: string;
+    clientSpending: string;
+    proposals: string;
   };
-  readonly thresholds: {
+  thresholds: {
     minimumSpent: number;
     proposalsMin: number;
     proposalsMax: number;
   };
-  readonly logging: {
-    readonly enabled: boolean;
-    readonly level: "debug" | "info" | "warn" | "error";
+  logging: {
+    enabled: boolean;
+    level: "debug" | "info" | "warn" | "error";
   };
-  readonly performance: {
-    readonly debounceDelay: number;
-    readonly maxProcessingTime: number;
+  performance: {
+    debounceDelay: number;
+    maxProcessingTime: number;
   };
-  readonly autoRefresh?: {
-    readonly enabled: boolean;
-    readonly refreshIntervalMs: number;
+  autoRefresh?: {
+    enabled: boolean;
+    refreshIntervalMs: number;
   };
+  filteringEnabled: boolean;
 }
 
 const DEFAULT_CONFIG: ExtensionConfig = {
@@ -47,6 +48,7 @@ const DEFAULT_CONFIG: ExtensionConfig = {
     enabled: true,
     refreshIntervalMs: 60000,
   },
+  filteringEnabled: true,
 };
 
 const PRODUCTION_CONFIG: ExtensionConfig = {
@@ -77,29 +79,67 @@ async function loadSettingsFromStorage(): Promise<{
   minimumSpent: number;
   proposalsMin: number;
   proposalsMax: number;
+  filteringEnabled: boolean;
+  autoRefreshEnabled: boolean;
+  autoRefreshIntervalMs: number;
 }> {
   try {
     const result = await chrome.storage.sync.get([
       "minimumSpent",
       "proposalsMin",
       "proposalsMax",
+      "filteringEnabled",
+      "autoRefreshEnabled",
+      "autoRefreshIntervalMs",
     ]);
     return {
       minimumSpent: result.minimumSpent || 1,
       proposalsMin: result.proposalsMin || 0,
       proposalsMax: result.proposalsMax || 100,
+      filteringEnabled:
+        typeof result.filteringEnabled === "boolean"
+          ? result.filteringEnabled
+          : true,
+      autoRefreshEnabled:
+        typeof result.autoRefreshEnabled === "boolean"
+          ? result.autoRefreshEnabled
+          : true,
+      autoRefreshIntervalMs:
+        typeof result.autoRefreshIntervalMs === "number" &&
+        result.autoRefreshIntervalMs > 0
+          ? result.autoRefreshIntervalMs
+          : 60000,
     };
   } catch (error) {
     console.error("Error loading settings from storage:", error);
-    return { minimumSpent: 1, proposalsMin: 0, proposalsMax: 100 };
+    return {
+      minimumSpent: 1,
+      proposalsMin: 0,
+      proposalsMax: 100,
+      filteringEnabled: true,
+      autoRefreshEnabled: true,
+      autoRefreshIntervalMs: 60000,
+    };
   }
 }
 
-export async function updateConfigWithSettings(config: ExtensionConfig): Promise<void> {
+export async function updateConfigWithSettings(
+  config: ExtensionConfig
+): Promise<void> {
   const settings = await loadSettingsFromStorage();
   config.thresholds.minimumSpent = settings.minimumSpent;
   config.thresholds.proposalsMin = settings.proposalsMin;
   config.thresholds.proposalsMax = settings.proposalsMax;
+  config.filteringEnabled = settings.filteringEnabled;
+  if (!config.autoRefresh) {
+    config.autoRefresh = {
+      enabled: settings.autoRefreshEnabled,
+      refreshIntervalMs: settings.autoRefreshIntervalMs,
+    };
+  } else {
+    config.autoRefresh.enabled = settings.autoRefreshEnabled;
+    config.autoRefresh.refreshIntervalMs = settings.autoRefreshIntervalMs;
+  }
   console.log("Updated config with settings:", settings);
 }
 

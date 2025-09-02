@@ -67,7 +67,8 @@ export class ProposalsParser {
       const moreThanMatch = cleanedProposals.match(/(\d+)\+/);
       if (moreThanMatch) {
         const value = parseInt(moreThanMatch[1]);
-        return value + 10;
+        // Treat X+ as upper bound (cap at 100)
+        return Math.min(100, value >= 50 ? 100 : value + 10);
       }
 
       const singleMatch = cleanedProposals.match(/(\d+)/);

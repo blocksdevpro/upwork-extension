@@ -40,6 +40,19 @@ async function initializeExtension() {
     }
   });
 
+  chrome.runtime.onMessage.addListener((message, _sender, _sendResponse) => {
+    if (message.type === "SETTINGS_UPDATED") {
+      // Update reloader according to new settings
+      if (autoPageReloader) {
+        if (config.autoRefresh?.enabled) {
+          autoPageReloader.start();
+        } else {
+          autoPageReloader.stop();
+        }
+      }
+    }
+  });
+
   jobFilterService.initialize();
 }
 

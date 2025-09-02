@@ -5,6 +5,13 @@ class PopupManager {
     this.minSpendInput = document.getElementById('minSpend');
     this.saveBtn = document.getElementById('saveBtn');
     this.statusDiv = document.getElementById('status');
+    this.filteringEnabledCheckbox = document.getElementById('filteringEnabled');
+    this.autoRefreshEnabledCheckbox = document.getElementById('autoRefreshEnabled');
+    this.autoRefreshIntervalInput = document.getElementById('autoRefreshInterval');
+    this.showAllBtn = document.getElementById('showAllBtn');
+    this.resetBtn = document.getElementById('resetBtn');
+    this.lastProcessingEl = document.getElementById('lastProcessing');
+    this.countsEl = document.getElementById('counts');
     
     // Proposals filter elements
     this.proposalsMinRange = document.getElementById('proposalsMinRange');
@@ -27,10 +34,22 @@ class PopupManager {
         this.saveSettings();
       }
     });
+    this.filteringEnabledCheckbox.addEventListener('change', () => this.saveSettings());
+    this.autoRefreshEnabledCheckbox.addEventListener('change', () => this.saveSettings());
+    this.autoRefreshIntervalInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') { this.saveSettings(); } });
+
+    this.showAllBtn.addEventListener('click', () => this.showAllHidden());
+    this.resetBtn.addEventListener('click', () => this.resetDefaults());
     
     // Add proposals range slider event listeners
     this.setupProposalsRangeSliders();
     this.setupPresetButtons();
+
+    // Load status from content script
+    this.refreshStatus();
+    // Periodically refresh a few times after open to catch changes
+    this.statusInterval = setInterval(() => this.refreshStatus(), 1500);
+    setTimeout(() => clearInterval(this.statusInterval), 7000);
   }
 
   setupProposalsRangeSliders() {
@@ -151,21 +170,30 @@ class PopupManager {
 
   async loadSettings() {
     try {
-      const result = await chrome.storage.sync.get(['minimumSpent', 'proposalsMin', 'proposalsMax']);
+      const result = await chrome.storage.sync.get(['minimumSpent', 'proposalsMin', 'proposalsMax', 'filteringEnabled', 'autoRefreshEnabled', 'autoRefreshIntervalMs']);
       const savedMinSpend = result.minimumSpent || 1; // Default to 1 if not set
       const savedProposalsMin = result.proposalsMin || 0; // Default to 0
       const savedProposalsMax = result.proposalsMax || 100; // Default to 100
+      const filteringEnabled = typeof result.filteringEnabled === 'boolean' ? result.filteringEnabled : true;
+      const autoRefreshEnabled = typeof result.autoRefreshEnabled === 'boolean' ? result.autoRefreshEnabled : true;
+      const autoRefreshIntervalMs = typeof result.autoRefreshIntervalMs === 'number' && result.autoRefreshIntervalMs > 0 ? result.autoRefreshIntervalMs : 60000;
       
       this.minSpendInput.value = savedMinSpend;
       this.proposalsMinRange.value = savedProposalsMin;
       this.proposalsMaxRange.value = savedProposalsMax;
+      this.filteringEnabledCheckbox.checked = filteringEnabled;
+      this.autoRefreshEnabledCheckbox.checked = autoRefreshEnabled;
+      this.autoRefreshIntervalInput.value = Math.round(autoRefreshIntervalMs / 1000);
       
       // Track and displays will be updated by the initial slider setup in initialize()
       
       console.log('Loaded settings:', { 
         minimumSpent: savedMinSpend, 
         proposalsMin: savedProposalsMin, 
-        proposalsMax: savedProposalsMax 
+        proposalsMax: savedProposalsMax,
+        filteringEnabled,
+        autoRefreshEnabled,
+        autoRefreshIntervalMs
       });
     } catch (error) {
       console.error('Error loading settings:', error);
@@ -173,6 +201,9 @@ class PopupManager {
       this.minSpendInput.value = 1;
       this.proposalsMinRange.value = 0;
       this.proposalsMaxRange.value = 100;
+      this.filteringEnabledCheckbox.checked = true;
+      this.autoRefreshEnabledCheckbox.checked = true;
+      this.autoRefreshIntervalInput.value = 60;
     }
   }
 
@@ -180,6 +211,10 @@ class PopupManager {
     const minSpend = parseInt(this.minSpendInput.value) || 0;
     const proposalsMin = parseInt(this.proposalsMinRange.value) || 0;
     const proposalsMax = parseInt(this.proposalsMaxRange.value) || 100;
+    const filteringEnabled = !!this.filteringEnabledCheckbox.checked;
+    const autoRefreshEnabled = !!this.autoRefreshEnabledCheckbox.checked;
+    const autoRefreshIntervalSecs = Math.min(600, Math.max(10, parseInt(this.autoRefreshIntervalInput.value) || 60));
+    const autoRefreshIntervalMs = autoRefreshIntervalSecs * 1000;
     
     if (minSpend < 0) {
       this.showError('Minimum spend cannot be negative');
@@ -200,19 +235,25 @@ class PopupManager {
       await chrome.storage.sync.set({ 
         minimumSpent: minSpend,
         proposalsMin: proposalsMin,
-        proposalsMax: proposalsMax
+        proposalsMax: proposalsMax,
+        filteringEnabled,
+        autoRefreshEnabled,
+        autoRefreshIntervalMs
       });
       console.log('Settings saved:', { 
         minimumSpent: minSpend, 
         proposalsMin: proposalsMin, 
-        proposalsMax: proposalsMax 
+        proposalsMax: proposalsMax,
+        filteringEnabled,
+        autoRefreshEnabled,
+        autoRefreshIntervalMs
       });
       
       // Show success message
       this.showSuccess();
       
       // Notify content script about the change
-      await this.notifyContentScript(minSpend, proposalsMin, proposalsMax);
+      await this.notifyContentScript({ minimumSpent: minSpend, proposalsMin, proposalsMax, filteringEnabled, autoRefreshEnabled, autoRefreshIntervalMs });
       
     } catch (error) {
       console.error('Error saving settings:', error);
@@ -220,27 +261,71 @@ class PopupManager {
     }
   }
 
-  async notifyContentScript(minSpend, proposalsMin, proposalsMax) {
+  async notifyContentScript(payload) {
     try {
       // Get the active tab
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       
       if (tab && tab.url && tab.url.includes('upwork.com')) {
         // Send message to content script
-        await chrome.tabs.sendMessage(tab.id, {
-          type: 'SETTINGS_UPDATED',
-          data: { 
-            minimumSpent: minSpend,
-            proposalsMin: proposalsMin,
-            proposalsMax: proposalsMax
-          }
-        });
+        await chrome.tabs.sendMessage(tab.id, { type: 'SETTINGS_UPDATED', data: payload });
         console.log('Notified content script about settings update');
       }
     } catch (error) {
       console.error('Error notifying content script:', error);
       // This is not critical, so we don't show an error to the user
     }
+  }
+
+  async showAllHidden() {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab && tab.url && tab.url.includes('upwork.com')) {
+        await chrome.tabs.sendMessage(tab.id, { type: 'SHOW_ALL_HIDDEN' });
+        this.showSuccess();
+      }
+    } catch (error) {
+      console.error('Error sending SHOW_ALL_HIDDEN:', error);
+    }
+  }
+
+  async refreshStatus() {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!(tab && tab.id && tab.url && tab.url.includes('upwork.com'))) {
+        this.lastProcessingEl.textContent = '—';
+        this.countsEl.textContent = '—';
+        return;
+      }
+      const response = await chrome.tabs.sendMessage(tab.id, { type: 'GET_STATUS' });
+      if (response) {
+        if (typeof response.lastProcessingMs === 'number') {
+          this.lastProcessingEl.textContent = `${response.lastProcessingMs.toFixed ? response.lastProcessingMs.toFixed(0) : Math.round(response.lastProcessingMs)} ms`;
+        }
+        this.countsEl.textContent = `${response.lastVisibleCount || 0} / ${response.lastHiddenCount || 0}`;
+        this.filteringEnabledCheckbox.checked = !!response.filteringEnabled;
+        if (response.autoRefresh && typeof response.autoRefresh.enabled === 'boolean') {
+          this.autoRefreshEnabledCheckbox.checked = response.autoRefresh.enabled;
+          if (typeof response.autoRefresh.refreshIntervalMs === 'number') {
+            this.autoRefreshIntervalInput.value = Math.round(response.autoRefresh.refreshIntervalMs / 1000);
+          }
+        }
+      }
+    } catch (error) {
+      // ignore if content script isn't present
+    }
+  }
+
+  async resetDefaults() {
+    this.minSpendInput.value = 1;
+    this.proposalsMinRange.value = 0;
+    this.proposalsMaxRange.value = 100;
+    this.filteringEnabledCheckbox.checked = true;
+    this.autoRefreshEnabledCheckbox.checked = true;
+    this.autoRefreshIntervalInput.value = 60;
+    // Trigger UI updates
+    this.proposalsMinRange.dispatchEvent(new Event('input'));
+    await this.saveSettings();
   }
 
   showSuccess() {
