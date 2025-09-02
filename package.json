@@ -3,17 +3,18 @@
   "version": "1.0.0",
   "description": "Upwork extension with TypeScript",
   "scripts": {
-    "build": "tsc",
-    "watch": "tsc --watch",
-    "dev": "pnpm run build && pnpm run watch",
+    "build": "node build.js",
+    "watch": "node build.js --watch",
+    "dev": "pnpm run watch",
     "clean": "if exist dist rmdir /S /Q dist & if exist dist.zip del /Q dist.zip",
-    "copy:dist": "mkdir dist && xcopy /E /I /Y src dist\\src && copy /Y manifest.json dist\\manifest.json",
+    "copy:assets": "mkdir dist\\src\\assets 2>nul && copy /Y src\\assets\\* dist\\src\\assets\\ && mkdir dist\\src\\popup 2>nul && copy /Y src\\popup\\* dist\\src\\popup\\",
     "zip:dist": "tar -a -c -f dist.zip -C dist .",
-    "build:prod": "pnpm run clean && pnpm run build && pnpm run copy:dist && pnpm run zip:dist"
+    "build:prod": "pnpm run clean && pnpm run build && pnpm run copy:assets && copy /Y manifest.json dist\\manifest.json && pnpm run zip:dist"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.254",
     "@types/node": "^24.3.0",
+    "esbuild": "^0.19.0",
     "typescript": "^5.0.0"
   }
 }
